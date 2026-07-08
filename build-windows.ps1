@@ -307,6 +307,8 @@ try {
 
     Write-Host "Build completed successfully!" -ForegroundColor Green
 
+    $isInteractive = ($Host.Name -eq 'ConsoleHost' -and -not $env:CI)
+
     $repackScript = Join-Path $scriptDir 'windows-repack-test.ps1'
     if (Test-Path $repackScript) {
         Write-Host "Running repack script..." -ForegroundColor Cyan
@@ -319,7 +321,7 @@ try {
         Write-Warning "Repack script not found at $repackScript. Skipping."
     }
 
-    if ($Host.Name -eq 'ConsoleHost') {
+    if ($isInteractive) {
         Write-Host
         Read-Host "Press Enter to exit"
     }
@@ -328,7 +330,8 @@ try {
 } catch {
     Write-Error $_.Exception.Message
     Write-Error "Note: also try restarting in a fresh PowerShell session"
-    if ($Host.Name -eq 'ConsoleHost') {
+    # $isInteractive may be unset if we threw before defining it; check independently (never block in CI)
+    if ($Host.Name -eq 'ConsoleHost' -and -not $env:CI) {
         Write-Host
         Read-Host "Press Enter to exit"
     }

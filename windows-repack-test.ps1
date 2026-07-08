@@ -54,14 +54,16 @@ try {
     exit 1
 }
 
-# Reveal the zip file in Explorer
-Write-Host "Revealing $ArchiveName in Explorer..." -ForegroundColor Cyan
-try {
-    $FullPath = Join-Path $ExecutableDir $ArchiveName
-    # Use explorer /select to highlight the file without opening it
-    Start-Process "explorer.exe" -ArgumentList "/select,`"$FullPath`""
-} catch {
-    Write-Warning "Could not reveal file in Explorer: $_"
+# Reveal the zip file in Explorer (skip in CI / non-interactive runners)
+if (-not $env:CI) {
+    Write-Host "Revealing $ArchiveName in Explorer..." -ForegroundColor Cyan
+    try {
+        $FullPath = Join-Path $ExecutableDir $ArchiveName
+        # Use explorer /select to highlight the file without opening it
+        Start-Process "explorer.exe" -ArgumentList "/select,`"$FullPath`""
+    } catch {
+        Write-Warning "Could not reveal file in Explorer: $_"
+    }
 }
 
 Write-Host "Repackaging complete." -ForegroundColor Green

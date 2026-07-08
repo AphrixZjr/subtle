@@ -20,3 +20,7 @@ yalc.lock
 AGENTS.md
 TECHNICAL.md
 agent-documents/
+
+# CI 私有凭据（切勿提交真实令牌）
+ci/rclone.conf
+ci/ci.env

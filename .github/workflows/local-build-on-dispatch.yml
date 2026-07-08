@@ -1,0 +1,62 @@
+name: Local Windows build on upstream push
+
+# 本地监听 workflow：跑在你自己机器上的自托管 runner。
+# 触发源：上游 the-dissidents/subtle push 时发来的 repository_dispatch (event_type: upstream-push)，
+# 或手动 workflow_dispatch。收到信号后同步上游代码 → 本地构建 → 上传 Google Drive。
+
+on:
+  repository_dispatch:
+    types: [upstream-push]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "上游要构建的 ref/sha（留空=上游默认分支）"
+        required: false
+
+concurrency:
+  group: local-windows-build
+  cancel-in-progress: true      # 新 push 到来时取消尚未完成的旧构建
+
+jobs:
+  build-and-upload:
+    runs-on: [self-hosted, windows, subtle-build]
+    timeout-minutes: 120
+    env:
+      CI: "true"                                 # 让构建脚本进入非交互模式（见 build-windows.ps1 / windows-repack-test.ps1）
+      UPSTREAM_SHA: ${{ github.event.client_payload.sha }}
+      UPSTREAM_REF: ${{ github.event.client_payload.ref }}
+      MANUAL_REF:   ${{ github.event.inputs.ref }}
+      RCLONE_CONFIG:    C:\subtle-ci\rclone.conf   # rclone 配置常驻在 runner 机器上（含 OAuth refresh token）
+      GDRIVE_FOLDER_ID: ${{ vars.GDRIVE_FOLDER_ID }}
+    steps:
+      - name: Checkout fork (含构建脚本)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Sync upstream code
+        shell: powershell
+        run: |
+          $target = if ($env:MANUAL_REF)        { $env:MANUAL_REF }
+                    elseif ($env:UPSTREAM_SHA)  { $env:UPSTREAM_SHA }
+                    else                        { "" }
+          git remote add upstream https://github.com/the-dissidents/subtle.git 2>$null
+          git fetch upstream --tags
+          if ($target) {
+            Write-Host "Merging upstream $target ..."
+            git merge --no-edit $target
+            if ($LASTEXITCODE -ne 0) {
+              Write-Warning "Merge conflict; falling back to building fork's current branch."
+              git merge --abort
+            }
+          } else {
+            Write-Host "No ref given; building fork's current branch."
+          }
+
+      - name: Build (local toolchain)
+        shell: powershell
+        run: ./build-windows-local.ps1
+
+      - name: Upload artifact to Google Drive
+        shell: powershell
+        run: ./ci/upload-to-gdrive.ps1
