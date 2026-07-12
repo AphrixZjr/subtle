@@ -1,0 +1,26 @@
+# rclone 配置模板 —— 核心密钥文件。
+#
+# 真实版命名为 rclone.conf，放在：
+#   - runner 机器固定路径 C:\subtle-ci\rclone.conf （CI 用，workflow 里 RCLONE_CONFIG 指向它）
+#   - 或本仓库 ci\rclone.conf （本地手动跑时用）
+# 两处都已被 .gitignore 忽略，切勿提交真实令牌。
+#
+# 【不要手填 token / client_id / client_secret】
+# 正确做法：在 runner 机器上运行 `rclone config`，新建 remote 名为 gdrive：
+#   type            = drive
+#   client_id       = <你在 GCP 建的 OAuth 桌面客户端 ID>
+#   client_secret   = <对应密钥>
+#   scope           = drive
+#   root_folder_id  = <My Drive 目标文件夹 ID>
+#   随后浏览器完成 OAuth 授权，rclone 会自动写入 token 段。
+# 详见 ci/README.md 第 B 节。
+#
+# 生成后的结构大致如下（token 由 rclone 自动生成、自动续期）：
+
+[gdrive]
+type = drive
+scope = drive
+client_id = <你的-OAuth-桌面客户端-ID>
+client_secret = <你的-OAuth-客户端密钥>
+token = {"access_token":"<自动生成>","token_type":"Bearer","refresh_token":"<自动生成>","expiry":"<自动生成>"}
+root_folder_id = <My Drive 目标文件夹 ID>
