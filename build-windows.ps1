@@ -313,12 +313,19 @@ try {
     if (Test-Path $repackScript) {
         Write-Host "Running repack script..." -ForegroundColor Cyan
         try {
-            Invoke-CheckedCommand -Command { & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $repackScript } -ErrorMessage "Warning: Repack script failed."
+            Invoke-CheckedCommand -Command { & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $repackScript } -ErrorMessage "Error: Repack script failed."
         } catch {
+            if ($env:CI) {
+                throw
+            }
             Write-Warning $_.Exception.Message
         }
     } else {
-        Write-Warning "Repack script not found at $repackScript. Skipping."
+        $message = "Repack script not found at $repackScript."
+        if ($env:CI) {
+            throw $message
+        }
+        Write-Warning "$message Skipping."
     }
 
     if ($isInteractive) {
@@ -337,4 +344,3 @@ try {
     }
     exit 1
 }
-
