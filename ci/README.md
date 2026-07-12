@@ -38,6 +38,9 @@ AphrixZjr/subtle 默认分支上的 local-build-on-dispatch.yml
 | `upstream/notify-fork-build.yml` | 可选的上游即时通知 workflow |
 | `../build-windows-local.ps1` | 本机构建包装器与 MSYS2 探测 |
 | `upload-to-gdrive.ps1` | 严格验证本次产物并用 rclone 上传 |
+| `runner-watchdog.ps1` | 登录后启动并监测代理、runner 和 rclone 授权 |
+| `install-runner-watchdog.ps1` | 安装当前用户计划任务与 runner 代理环境 |
+| `runner.env.example` | GitHub runner 固定代理配置 |
 | `rclone.conf.example` | rclone OAuth 配置结构示例（不含真实值） |
 | `ci.env.example` | 本地非敏感参数示例 |
 
@@ -49,7 +52,24 @@ workflow 使用 GitHub 默认标签和该机器的专用标签：
 runs-on: [self-hosted, windows, x64, subtle-build]
 ```
 
-现有 runner 已注册并可用，但当前以交互式 `run.cmd` 运行；Windows 注销、重启或关闭终端后需要重新启动。若要长期无人值守，应按 GitHub runner 文档改为服务或计划任务，并确保运行账号能访问：
+现有 runner 保持交互式 `run.cmd` 模式，不注册为 Windows 服务。计划任务 `Subtle CI Runner Watchdog` 使用当前用户的 `Interactive + Limited` 权限，在登录时启动，并每 5 分钟检查一次：
+
+- `127.0.0.1:10808` 不可用时启动 v2rayN；
+- 本机 `Runner.Listener` 缺失时通过官方 `run.cmd` 启动 runner；
+- 每 24 小时通过固定 Drive folder ID 检查一次 rclone 授权，失败后每小时最多重试一次；
+- 写入 `C:\subtle-ci\runner-watchdog.log`，超过 1 MiB 时轮转为 `.log.1`。
+
+watchdog 不会结束或强制重启任何现有 v2rayN/runner 进程，避免打断构建。计划任务只在该 Windows 用户已登录时运行；注销后不接单，这不是完全无人值守的服务配置。
+
+重新安装或更新任务：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\ci\install-runner-watchdog.ps1
+```
+
+安装器把 `runner-watchdog.ps1` 复制到 `C:\subtle-ci`，把 `runner.env.example` 的三项代理设置合并到 `D:\actions-runner\.env`（保留其它已有变量），并立即执行一次检查。runner 启动时会从 `.env` 读取固定代理；若安装时 runner 正在运行，设置要到下次正常重启才生效。
+
+运行账号必须能访问：
 
 - MSYS2、LLVM 18、MSVC 与 Windows SDK
 - fnm/Node、pnpm、cargo
@@ -60,7 +80,7 @@ runs-on: [self-hosted, windows, x64, subtle-build]
 
 ## B. Google Drive 与 rclone
 
-本机已用个人 My Drive OAuth 完成配置。目标文件夹是 rclone remote 的根目录，workflow 也会显式传入 folder ID。
+本机已用个人 My Drive OAuth 完成配置，并于 2026-07-12 在应用发布为 **Production** 后重新授权。目标目录通过固定 folder ID 访问；它不必显示在 My Drive 根目录中，workflow 和 watchdog 都会显式传入该 ID。
 
 手动验证（不会显示配置内容）：
 
@@ -69,15 +89,14 @@ $env:HTTP_PROXY = 'http://127.0.0.1:10808'
 $env:HTTPS_PROXY = 'http://127.0.0.1:10808'
 $env:NO_PROXY = '127.0.0.1,localhost'
 
-C:\subtle-ci\rclone.exe --config C:\subtle-ci\rclone.conf lsf gdrive:
+C:\subtle-ci\rclone.exe --config C:\subtle-ci\rclone.conf lsf gdrive: `
+    --drive-root-folder-id=1Y2Cutr-QaUggJv4VOVc0jfw6eVF3F5nn `
+    --max-depth 1
 ```
 
-OAuth 应用当前若仍为 **Testing**：
+Production 模式下新签发的 refresh token 不再受 External/Testing 的约 7 天期限限制。rclone 在 access token 过期时会自动使用 refresh token 获取新 access token，并把更新结果写回 `C:\subtle-ci\rclone.conf`；因此该文件必须对运行账号保持可写。
 
-- 授权账号必须在 Google Auth Platform → Audience → Test users 中；
-- offline refresh token 约 7 天后失效；
-- 到期后重新执行 `rclone config reconnect gdrive:`；
-- 要长期无人值守，应按 Google 的个人用途规则评估发布为 Production，并接受相应的未验证应用提示或验证要求。
+refresh token 本身不会被定时“续期”。用户撤销授权、长期未使用、令牌数量上限或 Google 管理策略仍可能使其失效；watchdog 会发现错误，但不会循环重新授权。此时先检查日志，再人工执行 `rclone config reconnect gdrive:`。
 
 ## C. fork workflow
 
@@ -149,6 +168,6 @@ $env:HTTPS_PROXY = 'http://127.0.0.1:10808'
 - workflow 使用 `contents: read`，checkout 不持久化 GitHub 凭据。
 - OAuth 配置拥有 Drive 权限；runner 应使用专用低权限 Windows 账号或隔离虚拟机，不存放其它敏感文件。
 - 上游代码会在同一账号下执行，常驻 Drive token 无法形成强安全边界；高安全场景应把构建与上传拆到不同 runner/账号。
-- v2rayN 必须在上传和 token 刷新时运行；代理改变后同步更新 workflow 或 Windows 系统代理。
+- v2rayN 必须在上传和 token 刷新时运行；代理改变后同步更新 `runner.env.example`、watchdog 参数和 Windows 系统代理。
 - Drive 个人配额有限，应定期清理旧 SHA 产物。
 - 用无痕窗口检查固定文件夹链接，确认未登录用户只能查看和下载。
